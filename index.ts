@@ -1,11 +1,16 @@
 import type { AIService, ChatMessage } from './types';
-import { initDB, getUsers, getUserById, insertUser, deleteUser } from './db';
+import { initDB } from './db';
+import { corsResponse, htmlResponse } from './utils/response';
+import { landingHTML } from './views/landing';
+import { handleUsers } from './routes/users';
+import { createChatHandler } from './routes/chat';
 
 console.log('[startup] Checking environment variables...');
 
 const requiredEnvVars: Record<string, string | undefined> = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY,
+  DATABASE_URL: process.env.DATABASE_URL,
 };
 
 for (const [name, value] of Object.entries(requiredEnvVars)) {
@@ -45,39 +50,35 @@ console.log(`[startup] ${services.length} service(s) ready: ${services.map(s => 
 let currentServiceIndex = 0;
 
 function getNextService() {
-  const service = services[currentServiceIndex];
+  const service = services[currentServiceIndex]!;
   currentServiceIndex = (currentServiceIndex + 1) % services.length;
   return service;
 }
+
+await initDB();
+
+const handleChat = createChatHandler(getNextService);
 
 const server = Bun.serve({
   port: process.env.PORT ?? 3000,
   hostname: '0.0.0.0',
   async fetch(req) {
-    const { pathname } = new URL(req.url)
+    const url = new URL(req.url);
+    const { pathname } = url;
+
+    if (req.method === 'OPTIONS') return corsResponse();
+
+    if (req.method === 'GET' && pathname === '/') {
+      return htmlResponse(landingHTML(url.origin));
+    }
 
     if (req.method === 'POST' && pathname === '/chat') {
-      try {
-        const { messages } = await req.json() as { messages: ChatMessage[] };
-        const service = getNextService();
+      return handleChat(req);
+    }
 
-        console.log(`[request] Using ${service.name} service`);
-        const stream = await service.chat(messages);
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-          },
-        });
-      } catch (err) {
-        console.error('[request] Error processing /chat:', (err as Error).message);
-        return new Response(JSON.stringify({ error: 'Internal server error' }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
+    if (pathname.startsWith('/users')) {
+      const response = await handleUsers(req, url, pathname);
+      if (response) return response;
     }
 
     return new Response("Not found", { status: 404 });
