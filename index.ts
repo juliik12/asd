@@ -1,11 +1,11 @@
 import type { AIService, ChatMessage } from './types';
+import { initDB, getUsers, getUserById, insertUser, deleteUser } from './db';
 
 console.log('[startup] Checking environment variables...');
 
 const requiredEnvVars: Record<string, string | undefined> = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY,
-  DATABASE_URL: process.env.DATABASE_URL,
 };
 
 for (const [name, value] of Object.entries(requiredEnvVars)) {
