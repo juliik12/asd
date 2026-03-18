@@ -10,6 +10,7 @@ console.log('[startup] Checking environment variables...');
 const requiredEnvVars: Record<string, string | undefined> = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY,
+  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   DATABASE_URL: process.env.DATABASE_URL,
 };
 
@@ -39,6 +40,14 @@ try {
   console.log('[startup] ✓ Cerebras service loaded');
 } catch (err) {
   console.error('[startup] ✗ Failed to load Cerebras service:', (err as Error).message);
+}
+
+try {
+  const { openrouterService } = await import('./services/openrouter');
+  services.push(openrouterService);
+  console.log('[startup] ✓ OpenRouter service loaded');
+} catch (err) {
+  console.error('[startup] ✗ Failed to load OpenRouter service:', (err as Error).message);
 }
 
 if (services.length === 0) {
