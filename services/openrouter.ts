@@ -9,9 +9,11 @@ export const openrouterService: AIService = {
   name: 'OpenRouter',
   async chat(messages: ChatMessage[]) {
     const stream = await openrouter.chat.send({
-      model: 'openrouter/free',
-      messages: messages as any,
-      stream: true,
+      chatGenerationParams: {
+        model: 'openrouter/free',
+        messages: messages as any,
+        stream: true,
+      },
     });
 
     return (async function* () {
