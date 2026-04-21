@@ -1,5 +1,4 @@
-import type { AIService, ChatMessage } from './types';
-import { initDB } from './db';
+import type { AIService } from './types';
 import { corsResponse, htmlResponse } from './utils/response';
 import { landingHTML } from './views/landing';
 import { handleUsers } from './routes/users';
@@ -11,7 +10,6 @@ const requiredEnvVars: Record<string, string | undefined> = {
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY,
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
-  DATABASE_URL: process.env.DATABASE_URL,
 };
 
 for (const [name, value] of Object.entries(requiredEnvVars)) {
@@ -56,6 +54,7 @@ if (services.length === 0) {
 }
 
 console.log(`[startup] ${services.length} service(s) ready: ${services.map(s => s.name).join(', ')}`);
+
 let currentServiceIndex = 0;
 
 function getNextService() {
@@ -64,13 +63,12 @@ function getNextService() {
   return service;
 }
 
-await initDB();
-
 const handleChat = createChatHandler(getNextService);
 
 const server = Bun.serve({
   port: process.env.PORT ?? 3000,
   hostname: '0.0.0.0',
+
   async fetch(req) {
     const url = new URL(req.url);
     const { pathname } = url;
@@ -86,12 +84,11 @@ const server = Bun.serve({
     }
 
     if (pathname.startsWith('/users')) {
-      const response = await handleUsers(req, url, pathname);
-      if (response) return response;
+      return await handleUsers(req, url, pathname);
     }
 
     return new Response("Not found", { status: 404 });
   }
-})
+});
 
 console.log(`Server is running on ${server.url}`);
