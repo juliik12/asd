@@ -1,94 +1,68 @@
-import type { AIService } from './types';
-import { corsResponse, htmlResponse } from './utils/response';
-import { landingHTML } from './views/landing';
-import { handleUsers } from './routes/users';
-import { createChatHandler } from './routes/chat';
+import { SQL } from "bun";
 
-console.log('[startup] Checking environment variables...');
+const DATABASE_URL = process.env.DATABASE_URL;
 
-const requiredEnvVars: Record<string, string | undefined> = {
-  GROQ_API_KEY: process.env.GROQ_API_KEY,
-  CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY,
-  OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
-};
+if (!DATABASE_URL) {
+  console.error("[db] ✗ Missing env var: DATABASE_URL");
+  console.error("[db] ✗ Set DATABASE_URL to your PostgreSQL connection string");
+} else {
+  console.log("[db] ✓ DATABASE_URL is set");
+}
 
-for (const [name, value] of Object.entries(requiredEnvVars)) {
-  if (!value) {
-    console.warn(`[startup] ⚠ Missing env var: ${name}`);
-  } else {
-    console.log(`[startup] ✓ ${name} is set`);
+const db = DATABASE_URL ? new SQL(DATABASE_URL) : null;
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  created_at: string;
+}
+
+export async function initDB() {
+  if (!db) {
+    console.warn("[db] ⚠ Skipping DB init — DATABASE_URL not set");
+    return;
   }
+
+  await db`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+  console.log("[db] ✓ Table 'users' ready");
 }
 
-console.log(`[startup] PORT=${process.env.PORT ?? '3000 (default)'}`);
-
-const services: AIService[] = [];
-
-try {
-  const { groqService } = await import('./services/groq');
-  services.push(groqService);
-  console.log('[startup] ✓ Groq service loaded');
-} catch (err) {
-  console.error('[startup] ✗ Failed to load Groq service:', (err as Error).message);
+export async function getUsers(limit = 50) {
+  if (!db) throw new Error("Database not configured. Set DATABASE_URL env var.");
+  return db<User[]>`SELECT * FROM users ORDER BY id DESC LIMIT ${limit}`;
 }
 
-try {
-  const { cerebrasService } = await import('./services/cerebras');
-  services.push(cerebrasService);
-  console.log('[startup] ✓ Cerebras service loaded');
-} catch (err) {
-  console.error('[startup] ✗ Failed to load Cerebras service:', (err as Error).message);
+export async function getUserById(id: number) {
+  if (!db) throw new Error("Database not configured. Set DATABASE_URL env var.");
+  const rows = await db<User[]>`SELECT * FROM users WHERE id = ${id}`;
+  return rows[0] ?? null;
 }
 
-try {
-  const { openrouterService } = await import('./services/openrouter');
-  services.push(openrouterService);
-  console.log('[startup] ✓ OpenRouter service loaded');
-} catch (err) {
-  console.error('[startup] ✗ Failed to load OpenRouter service:', (err as Error).message);
+export async function insertUser(name: string, email: string) {
+  if (!db) throw new Error("Database not configured. Set DATABASE_URL env var.");
+  const rows = await db<User[]>`
+    INSERT INTO users (name, email)
+    VALUES (${name}, ${email})
+    RETURNING *
+  `;
+  return rows[0];
 }
 
-if (services.length === 0) {
-  console.error('[startup] ✗ No AI services available. Exiting.');
-  process.exit(1);
+export async function deleteUser(id: number) {
+  if (!db) throw new Error("Database not configured. Set DATABASE_URL env var.");
+  const rows = await db<User[]>`
+    DELETE FROM users WHERE id = ${id}
+    RETURNING *
+  `;
+  return rows[0] ?? null;
 }
 
-console.log(`[startup] ${services.length} service(s) ready: ${services.map(s => s.name).join(', ')}`);
-
-let currentServiceIndex = 0;
-
-function getNextService() {
-  const service = services[currentServiceIndex]!;
-  currentServiceIndex = (currentServiceIndex + 1) % services.length;
-  return service;
-}
-
-const handleChat = createChatHandler(getNextService);
-
-const server = Bun.serve({
-  port: process.env.PORT ?? 3000,
-  hostname: '0.0.0.0',
-
-  async fetch(req) {
-    const url = new URL(req.url);
-    const { pathname } = url;
-
-    if (req.method === 'OPTIONS') return corsResponse();
-
-    if (req.method === 'GET' && pathname === '/') {
-      return htmlResponse(landingHTML(url.origin));
-    }
-
-    if (req.method === 'POST' && pathname === '/chat') {
-      return handleChat(req);
-    }
-
-    if (pathname.startsWith('/users')) {
-      return await handleUsers(req, url, pathname);
-    }
-
-    return new Response("Not found", { status: 404 });
-  }
-});
-
-console.log(`Server is running on ${server.url}`);
+export { db };
