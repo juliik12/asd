@@ -1,7 +1,6 @@
 import type { AIService } from './types';
 import { corsResponse, htmlResponse } from './utils/response';
 import { landingHTML } from './views/landing';
-import { handleUsers } from './routes/users';
 import { createChatHandler } from './routes/chat';
 
 console.log('[startup] Checking environment variables...');
@@ -13,82 +12,58 @@ const requiredEnvVars: Record<string, string | undefined> = {
 };
 
 for (const [name, value] of Object.entries(requiredEnvVars)) {
-  if (!value) {
-    console.warn(`[startup] ⚠ Missing env var: ${name}`);
-  } else {
-    console.log(`[startup] ✓ ${name} is set`);
-  }
+  if (!value) console.warn(`[startup] ⚠ Missing env var: ${name}`);
+  else console.log(`[startup] ✓ ${name} is set`);
 }
-
-console.log(`[startup] PORT=${process.env.PORT ?? '3000 (default)'}`);
 
 const services: AIService[] = [];
 
 try {
   const { groqService } = await import('./services/groq');
   services.push(groqService);
-  console.log('[startup] ✓ Groq service loaded');
-} catch (err) {
-  console.error('[startup] ✗ Failed to load Groq service:', (err as Error).message);
-}
+} catch {}
 
 try {
   const { cerebrasService } = await import('./services/cerebras');
   services.push(cerebrasService);
-  console.log('[startup] ✓ Cerebras service loaded');
-} catch (err) {
-  console.error('[startup] ✗ Failed to load Cerebras service:', (err as Error).message);
-}
+} catch {}
 
 try {
   const { openrouterService } = await import('./services/openrouter');
   services.push(openrouterService);
-  console.log('[startup] ✓ OpenRouter service loaded');
-} catch (err) {
-  console.error('[startup] ✗ Failed to load OpenRouter service:', (err as Error).message);
-}
+} catch {}
 
 if (services.length === 0) {
-  console.error('[startup] ✗ No AI services available. Exiting.');
+  console.error('No AI services available');
   process.exit(1);
 }
 
-console.log(`[startup] ${services.length} service(s) ready: ${services.map(s => s.name).join(', ')}`);
-
-let currentServiceIndex = 0;
-
+let i = 0;
 function getNextService() {
-  const service = services[currentServiceIndex]!;
-  currentServiceIndex = (currentServiceIndex + 1) % services.length;
-  return service;
+  const s = services[i]!;
+  i = (i + 1) % services.length;
+  return s;
 }
 
 const handleChat = createChatHandler(getNextService);
 
-const server = Bun.serve({
+Bun.serve({
   port: process.env.PORT ?? 3000,
   hostname: '0.0.0.0',
 
   async fetch(req) {
     const url = new URL(req.url);
-    const { pathname } = url;
 
     if (req.method === 'OPTIONS') return corsResponse();
 
-    if (req.method === 'GET' && pathname === '/') {
+    if (req.method === 'GET' && url.pathname === '/') {
       return htmlResponse(landingHTML(url.origin));
     }
 
-    if (req.method === 'POST' && pathname === '/chat') {
+    if (req.method === 'POST' && url.pathname === '/chat') {
       return handleChat(req);
     }
 
-    if (pathname.startsWith('/users')) {
-      return await handleUsers(req, url, pathname);
-    }
-
-    return new Response("Not found", { status: 404 });
+    return new Response('Not found', { status: 404 });
   }
 });
-
-console.log(`Server is running on ${server.url}`);
